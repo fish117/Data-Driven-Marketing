@@ -1,0 +1,609 @@
+#############Q1##########
+
+##############################
+library(data.table)
+library("dplyr")
+library(ggplot2)
+library(scales)
+userlog<-read.csv(file.choose())
+newd<-userlog[newd$cat_id == '1438']
+
+
+head(newd)
+
+library(lubridate)
+
+newd$month<-ceiling((newd$time_stamp-510)/100)# To make MAy as the 1st month
+range(newd$month)
+table(newd$date[newd$month==7]) ###all of these dates are Nov 11 and Nov 12.
+newd$month<-ifelse(newd$month==7,6,newd$month)
+range(newd$month)
+
+
+##1a
+library(data.table)
+buyer<-subset(newd,action_type==2)
+buyer<-data.table(buyer)
+sales_trend<-aggregate(buyer$action_type,by=list(buyer$month),FUN=length)
+colnames(sales_trend)=c("month","sales")
+
+
+
+library(ggplot2)
+# plot out the sales trend
+ggplot(data=sales_trend, aes(x=month, y=sales)) +
+  geom_line(aes(col="red"))+
+  geom_point()+
+  labs(title="sales trend")
+
+
+##1b
+brand_sales<-aggregate(buyer$action_type,by=list(buyer$brand_id),FUN=length)
+colnames(brand_sales)=c("brand","sales")
+brand_top_10_sales<-setorder(brand_sales,-sales)[1:10,] # the top 10 brand id
+brand_top_10_sales$market_share<-brand_top_10_sales$sales/sum(brand_sales$sales)
+brand_top_10_sales$brand<-factor(brand_top_10_sales$brand,levels=brand_top_10_sales$brand)
+
+library(ggplot2)
+theme_set(theme_bw())
+
+# Draw plot
+ggplot(brand_top_10_sales, aes(x=brand, y=market_share)) + 
+  geom_bar(stat="identity", fill="tomato3") + 
+  labs(title="top 10 brands")+
+  
+  
+  theme(axis.text.x = element_text(angle=65, vjust=0.6))
+
+
+###1c  and 1d########
+
+
+brand_growth<-buyer[,list(month_sales=length(action_type)),by=c("brand_id","month")]
+
+library(dplyr)
+brand_id<- unique(buyer$brand_id)
+
+sales<-as.data.frame(brand_id)
+for (i in 1:6){
+  sales_i<-filter(brand_growth,brand_id==brand_id,month==i)
+  sales_i$month<-NULL
+  colnames(sales_i)<-c("brand_id",i)
+  sales<-merge(sales,sales_i,by=c("brand_id"),all.x=T)
+}
+sales$launch_month<-6-rowSums(is.na(sales)|sales == '')#how many months does this brand sell
+
+sales<-filter(sales,launch_month!=1)#ignore brands which only lauch at the last month
+
+
+
+
+brand_id<-sales$brand_id
+sales$brand_id<-NULL
+ind<-!is.na(sales)
+sales$start<-tapply(sales[ind], row(sales)[ind], head, 1)
+sales<-cbind(brand_id,sales)
+sales$growth_rate<-(sales$`6`/sales$start)^(1/sales$launch_month)-1
+
+###########1c
+
+brand_increasing<-sales$brand_id[which.max(sales$growth_rate)]
+brand_decreasing<-sales$brand_id[which.min(sales$growth_rate)]
+
+library(ggplot2)
+increasing_sales=sales[sales$brand_id==brand_increasing,2:7]
+a=seq(1,6,1)
+increaseing_sales<-data.table(cbind(a,t(increasing_sales)))
+
+colnames(increaseing_sales)<-c("month","sales")
+increaseing_sales$sales<-ifelse(is.na(increaseing_sales$sales),0.01,increaseing_sales$sales)
+
+ggplot(data=increaseing_sales, aes(x=month, y=sales)) +
+  geom_line(color="red")+labs(title="increasing brand")+
+  geom_point()
+
+
+######1d
+
+
+decreasing_sales=sales[sales$brand_id==brand_decreasing,2:7]
+a=seq(1,6,1)
+decreaseing_sales<-data.table(cbind(a,t(decreasing_sales)))
+
+colnames(decreaseing_sales)<-c("month","sales")
+decreaseing_sales$sales<-ifelse(is.na(decreaseing_sales$sales),0.01,decreaseing_sales$sales)
+
+ggplot(data=decreaseing_sales, aes(x=month, y=sales)) +
+  geom_line(color="red")+labs(title="decreasing brand")+
+  geom_point()
+
+
+
+
+
+require(devtools)
+install_github("sentiment140", "okugami79")
+Install lines for "graph" and "Rgraphviz"
+source("https://bioconductor.org/biocLite.R")
+biocLite("graph")
+biocLite("Rgraphviz")
+
+
+---
+title: "DDM Group Assignment-2"
+author: "Sahil Jain | Isha Kataria | Vaishali Nirwan | Piyush Batra | Iris Xu"
+date: '2018-04-28'
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+## Question 2: Many of the ???boxing-day??? buyers are one-time deal hunters, and these promotions may have little long-lasting impact on sales. To alleviate this problem, it is important for merchants to identify who can be converted into repeated buyers. By targeting on these potential loyal customers, merchants can greatly reduce the promotion cost and enhance the return on investment (ROI). Please predict which new buyers for the given merchants will buy again in the future. In other words, you need to predict the probability that these new buyers would purchase items from the same merchants again within 6 months. A training dataset showing the real behavior of repetition or not is provided. A target dataset with the shopper ID and the given merchants is for you to fill in the probability respectively. 
+
+##Read input files 
+
+```{r}
+library(dplyr)
+library(Hmisc)
+userlog<- read.csv("/Users/sahil/Google Drive/MBAN/Period5/BAMA517_DDM/GA2/data_format1/user_log_format1.csv", colClasses = c("integer","integer","integer","integer","integer","character","integer"))
+
+userlog.backup<-userlog
+count1112<- userlog %>% filter(userlog$time_stamp=="1112")
+```
+
+```{r}
+userinfo<- read.csv("/Users/sahil/Google Drive/MBAN/Period5/BAMA517_DDM/GA2/data_format1/user_info_format1.csv", colClasses = c("integer","factor","factor"))
+#str(userinfo)
+train<- read.csv("/Users/sahil/Google Drive/MBAN/Period5/BAMA517_DDM/GA2/data_format1/train_format1.csv")
+
+# Changing the column name 'merchant_id' to 'seller_id' in the train_format1 and test_format1 datasets so as to match with user_log_format1 dataset
+
+names(train) <- c("user_id", "seller_id","label")
+test<- read.csv("/Users/sahil/Google Drive/MBAN/Period5/BAMA517_DDM/GA2/data_format1/test_format1.csv")
+names(test) <- c("user_id", "seller_id","prob")
+
+#describe(train)
+#describe(test)
+#describe(userinfo)
+```
+
+##Data Manupulation (UserInfo)
+
+####Treat missing data
+Since age_range=0 is for Null/Unknown, replacing NAs with 0 and similarly NA values for gender with 2
+```{r}
+#summary(userinfo)
+#head(userinfo)
+userinfo$age_range[is.na(userinfo$age_range)] <- 0
+userinfo$gender[is.na(userinfo$gender)] <- 2
+```
+
+##Data Manupulation (UserLog)
+
+###Convert time_stamp to date format
+
+```{r}
+#head(userlog)
+#str(userlog)
+
+userlog$time_stamp<- paste("2017",userlog$time_stamp,sep="")
+userlog$time_stamp <- as.Date(userlog$time_stamp, format = '%Y%m%d')
+```
+
+###Filter data for 3 months (12 August to 11 November)
+There are only `r nrow(count1112)` records for November 12, we filter them out.
+
+```{r}
+userlog<- userlog %>% filter(time_stamp>= "2017-08-12",time_stamp<= "2017-11-11" )
+
+#userlog %>% filter(action_type==2)
+#myuserlog %>% filter(user_seller_purchase_count>1)
+
+# uniquepairs<-unique(userlog[,c("user_id","seller_id")])
+# uniquepairs<-distinct(userlog,user_id,seller_id)
+# uniquepairs <- uniquepairs %>% mutate(f=1)
+# uniquepairs1<-distinct(userlog1,user_id,seller_id)
+# uniquepairs1 <- uniquepairs1 %>% mutate(f=1)
+# 
+# merged_train<-merge(train,uniquepairs, by=c("user_id","seller_id"),all.x=TRUE)
+# summary(merged_train)
+# merged_test<-merge(test,uniquepairs, by=c("user_id","seller_id"),all.x=TRUE)
+# summary(merged_test)
+```
+
+##Creating Features
+
+##### Since we need to predict probability of repeat purchase at a seller by a particular user, aggregating the information about the items, categories and brands sold by a seller, clicked/purchased/added to cart/added to favourites by a user will help us in determining the chances of a repeat purchase.
+
+Hence we shall aggregate the information as follows:
+
+For each **user** who visited a particular **seller**, we will:
+
+- Count the number of activities, that is, the total number of interactions* between that user and seller       Before Nov 11 and on Nov 11 (Features created: 'u_s_activityBefore11_count' and 'u_s_activityOn11_count' respectively).
+
+  (For example, if 'Sahil' as a user never interacted (clicked/purchased/added products to favourites or cart) with   'Michael Kors' as a seller before Nov 11, but did many activities with that seller on Nov 11, it could strongly    help in determining the chances of repeated purchase after Nov 11.)
+  
+- Count the number of distinct items with which a user interacted* sold by a seller before Nov 11 and on Nov 11. (Features created: ' u_s_itemBefore11_count' and ' u_s_itemOn11_count' respectively).
+
+- Count the number of distinct categories with which a user interacted* sold by a seller before Nov 11 and on Nov 11. (Features created: 'u_s_brandBefore11_count' and 'u_s_brandOn11_count' respectively).
+
+- Count the number of distinct brands with which a user interacted* sold by a seller before Nov 11 and on Nov 11. (Features created: 'u_s_brandBefore11_count' and 'u_s_brandOn11_count' respectively).
+
+- Ratio of the number of clicks done by a user at a seller's platform to the number of activities done by the user with that seller before Nov 11 and on Nov 11. (Features created: 'u_s_clickonlyBefore11_ratio' and 'u_s_clickonlyOn11_ratio' respectively).
+
+- Check if the user added to cart any article sold by a particular seller before Nov 11 and on Nov 11. (Features created: 'u_s_atcBefore11_flag' and 'u_s_atcOn11_flag' respectively).
+
+- Count the number of articles sold by a seller that user added to cart before Nov 11 and on Nov 11. (Features created: 'u_s_atcBefore11_count' and 'u_s_atcOn11_count' respectively).
+
+- Ratio of the number of times a user added a seller's articles to cart to the number of activities done by the user with that seller before Nov 11 and on Nov 11. (Features created: 'u_s_atcBefore11_ratio' and 'u_s_atcBefore11_ratio' respectively).
+
+- Similarly, user behaviour has been recorded to capture whether the user purchased anything from a particular seller or added to favourites before Nov 11 and on Nov 11 respectively, the number of articles of that seller purchased/added to favourites, the ratio of articles of that seller puchased/added to favourites by the user. The following features capture this information:
+
+u_s_purBefore11_flag, u_s_purBefore11_count, u_s_purBefore11_ratio, u_s_atfBefore11_flag, u_s_atfBefore11_count, u_s_atfBefore11_ratio, u_s_purOn11_flag, u_s_purOn11_count, u_s_purOn11_ratio, u_s_atfOn11_flag, u_s_atfOn11_count, u_s_atfOn11_ratio
+
+*: interactions here refer to any acitivity done by the user and could mean click/purchase/add to cart/add to favourites
+
+###User-Seller Features before Double11
+
+```{r}
+myuserlog1<- userlog %>% 
+  filter(time_stamp<"2017-11-11") %>% 
+  group_by(user_id,seller_id) %>% 
+  summarise(u_s_activityBefore11_count=n(),
+         u_s_itemBefore11_count=n_distinct(item_id),
+         u_s_catBefore11_count=n_distinct(cat_id),
+         u_s_brandBefore11_count=n_distinct(brand_id),
+         u_s_clickonlyBefore11_ratio=sum(action_type==0)/n(),
+         u_s_atcBefore11_flag=ifelse(1 %in% action_type,1,0),
+         u_s_atcBefore11_count= sum(action_type==1),
+         u_s_atcBefore11_ratio= sum(action_type==1)/n(),
+         u_s_purBefore11_flag=ifelse(2 %in% action_type,1,0),
+         u_s_purBefore11_count= sum(action_type==2),
+         u_s_purBefore11_ratio= sum(action_type==2)/n(),
+         u_s_atfBefore11_flag=ifelse(3 %in% action_type,1,0),
+         u_s_atfBefore11_count= sum(action_type==3),
+         u_s_atfBefore11_ratio= sum(action_type==3)/n()
+        )
+```
+
+###User-Seller Features on Double11
+
+```{r}
+
+myuserlog2<- userlog %>% 
+  filter(time_stamp=="2017-11-11") %>% 
+  group_by(user_id,seller_id) %>% 
+  summarise(u_s_activityOn11_count=n(),
+         u_s_itemOn11_count=n_distinct(item_id),
+         u_s_catOn11_count=n_distinct(cat_id),
+         u_s_brandOn11_count=n_distinct(brand_id),
+         u_s_clickonlyOn11_ratio=sum(action_type==0)/n(),
+         u_s_atcOn11_flag=ifelse(1 %in% action_type,1,0),
+         u_s_atcOn11_count= sum(action_type==1),
+         u_s_atcOn11_ratio= sum(action_type==1)/n(),
+         u_s_purOn11_flag=ifelse(2 %in% action_type,1,0),
+         u_s_purOn11_count= sum(action_type==2),
+         u_s_purOn11_ratio= sum(action_type==2)/n(),
+         u_s_atfOn11_flag=ifelse(3 %in% action_type,1,0),
+         u_s_atfOn11_count= sum(action_type==3),
+         u_s_atfOn11_ratio= sum(action_type==3)/n()
+        )
+
+```
+
+####Merge User-Seller Features
+
+```{r}
+merge1<- merge(myuserlog1,myuserlog2,by=c("user_id","seller_id"),all=TRUE)
+```
+
+#### Information about the behaviour of a **User**, vis-a-vis the following information about each USER will also help in predicting probabilities of repeated purchase by that User: 
+
+- Number of activities (click/purchase/add to cart/favourites) performed by each User before Nov 11 and on Nov 11 (Features used: 'u_activityBefore11_count' and 'u_activityOn11_count')
+
+- Conversion ratio (articles actually purchased) against each Seller, before and on Nov 11 (Features: 'u_sellerBefore11_conversion' and 'u_sellerOn11_conversion')
+
+- Number of distinct categories with which the user interacted before and on Nov 11 (Features used: 'u_catBefore11_count' and 'u_catOn11_count')
+
+- Number of distinct brands with which the user interacted before and on Nov 11 (Features used: 'u_brandBefore11_count' and 'u_brandOn11_count')
+
+- Ratio of the number of clicks done by a user to the number of activites done by that user before Nov 11 and on Nov 11. (Features created: 'u_clickonlyBefore11_ratio' and 'u_clickonlyOn11_ratio' respectively).
+
+- Check if the user added to cart any article before Nov 11 and on Nov 11. (Features created: 'u_atcBefore11_flag' and 'u_atcOn11_flag' respectively).
+
+- Count the number of times a user added to cart article(s) before Nov 11 and on Nov 11. (Features created: 'u_atcBefore11_count' and 'u_atcOn11_count' respectively).
+
+- Ratio of the number of times a user added article(s) to cart to the number of acitivities done by the user before Nov 11 and on Nov 11. (Features created: 'u_atcBefore11_ratio' and 'u_atcBefore11_ratio' respectively).
+
+- Similarly, user behaviour has been recorded to capture whether the user purchased any article or added to favourites before Nov 11 and on Nov 11 respectively, the number of articles purchased/added to favourites, the ratio of articles puchased/added to favourites by the user. The following features capture this information:
+
+u_purBefore11_flag, u_purBefore11_count, u_purBefore11_ratio, u_atfBefore11_flag, u_atfBefore11_count, u_atfBefore11_ratio, u_purOn11_flag, u_purOn11_count, u_purOn11_ratio, u_atfOn11_flag, u_atfOn11_count, u_atfOn11_ratio
+
+
+###User Features before Double11
+
+```{r}
+myuserlog3<- userlog %>% 
+  filter(time_stamp<"2017-11-11") %>% 
+  group_by(user_id) %>% 
+  summarise(u_activityBefore11_count=n(),
+         u_sellerBefore11_conversion=n_distinct(seller_id[action_type==2])/n_distinct(seller_id),
+         u_itemBefore11_count=n_distinct(item_id),
+         u_catBefore11_count=n_distinct(cat_id),
+         u_brandBefore11_count=n_distinct(brand_id),
+         u_clickonlyBefore11_ratio=sum(action_type==0)/n(),
+         u_atcBefore11_flag=ifelse(1 %in% action_type,1,0),
+         u_atcBefore11_count= sum(action_type==1),
+         u_atcBefore11_ratio= sum(action_type==1)/n(),
+         u_purBefore11_flag=ifelse(2 %in% action_type,1,0),
+         u_purBefore11_count= sum(action_type==2),
+         u_purBefore11_ratio= sum(action_type==2)/n(),
+         u_atfBefore11_flag=ifelse(3 %in% action_type,1,0),
+         u_atfBefore11_count= sum(action_type==3),
+         u_atfBefore11_ratio= sum(action_type==3)/n()
+        )
+```
+
+###User Features on Double11
+
+```{r}
+myuserlog4<- userlog %>% 
+  filter(time_stamp=="2017-11-11") %>% 
+  group_by(user_id) %>% 
+  summarise(u_activityOn11_count=n(),
+         u_sellerOn11_conversion=n_distinct(seller_id[action_type==2])/n_distinct(seller_id),
+         u_itemOn11_count=n_distinct(item_id),
+         u_catOn11_count=n_distinct(cat_id),
+         u_brandOn11_count=n_distinct(brand_id),
+         u_clickonlyOn11_ratio=sum(action_type==0)/n(),
+         u_atcOn11_flag=ifelse(1 %in% action_type,1,0),
+         u_atcOn11_count= sum(action_type==1),
+         u_atcOn11_ratio= sum(action_type==1)/n(),
+         u_purOn11_flag=ifelse(2 %in% action_type,1,0),
+         u_purOn11_count= sum(action_type==2),
+         u_purOn11_ratio= sum(action_type==2)/n(),
+         u_atfOn11_flag=ifelse(3 %in% action_type,1,0),
+         u_atfOn11_count= sum(action_type==3),
+         u_atfOn11_ratio= sum(action_type==3)/n()
+        )
+```
+
+#### Merge User Features
+
+```{r}
+merge2<- merge(myuserlog3,myuserlog4,by=c("user_id"),all=TRUE)
+```
+
+
+#### Information about the performance of a **Seller**, vis-a-vis the following information about each SELLER will also help in predicting probabilities of repeated purchase at that Seller:
+
+- Number of activities (click/purchase/add to cart/favourites) performed at that Seller before Nov 11 and on Nov 11 (Features used: 's_activityBefore11_count' and 's_activityOn11_count')
+
+- Conversion ratio (articles of that Seller actually purchased) before and on Nov 11 (Features: 's_userBefore11_conversion' and 's_userOn11_conversion')
+
+- Number of distinct categories available at the seller and interacted with before and on Nov 11 (Features used: 's_catBefore11_count' and 's_catOn11_count')
+
+- Number of distinct brands available at the seller and interacted with before and on Nov 11 (Features used: 's_brandBefore11_count' and 's_brandOn11_count')
+
+- Ratio of the number of clicks done by a user to the number of activites done by that user before Nov 11 and on Nov 11. (Features created: 's_clickonlyBefore11_ratio' and 's_clickonlyOn11_ratio' respectively).
+
+- Check if any article by that Seller was added to cart before Nov 11 and on Nov 11. (Features created: 's_atcBefore11_flag' and 's_atcOn11_flag' respectively).
+
+- Count the number of times article(s) of that seller added to cart before Nov 11 and on Nov 11. (Features created: 's_atcBefore11_count' and 's_atcOn11_count' respectively).
+
+- Ratio of the number of times article(s) of that seller were added to cart to the number of acitivities performed at that Seller before Nov 11 and on Nov 11. (Features created: 's_atcBefore11_ratio' and 's_atcBefore11_ratio' respectively).
+
+- Similarly, seller performance has been recorded to capture whether the seller's articles were purchased or added to favourites before Nov 11 and on Nov 11 respectively, the number of articles purchased/added to favourites, the ratio of articles puchased/added to favourites. The following features capture this information:
+
+s_purBefore11_flag, s_purBefore11_count, s_purBefore11_ratio, s_atfBefore11_flag, s_atfBefore11_count, s_atfBefore11_ratio, s_purOn11_flag, s_purOn11_count, s_purOn11_ratio, s_atfOn11_flag, s_atfOn11_count, s_atfOn11_ratio
+
+
+###Seller Features before Double11
+
+```{r}
+myuserlog5<- userlog %>% 
+  filter(time_stamp<"2017-11-11") %>% 
+  group_by(seller_id) %>% 
+  summarise(s_activityBefore11_count=n(),
+         s_userBefore11_conversion=n_distinct(user_id[action_type==2])/n_distinct(user_id),
+         s_itemBefore11_count=n_distinct(item_id),
+         s_catBefore11_count=n_distinct(cat_id),
+         s_brandBefore11_count=n_distinct(brand_id),
+         s_clickonlyBefore11_ratio=sum(action_type==0)/n(),
+         s_atcBefore11_flag=ifelse(1 %in% action_type,1,0),
+         s_atcBefore11_count= sum(action_type==1),
+         s_atcBefore11_ratio= sum(action_type==1)/n(),
+         s_purBefore11_flag=ifelse(2 %in% action_type,1,0),
+         s_purBefore11_count= sum(action_type==2),
+         s_purBefore11_ratio= sum(action_type==2)/n(),
+         s_atfBefore11_flag=ifelse(3 %in% action_type,1,0),
+         s_atfBefore11_count= sum(action_type==3),
+         s_atfBefore11_ratio= sum(action_type==3)/n()
+        )
+```
+
+###Seller Features on Double11
+
+```{r}
+myuserlog6<- userlog %>% 
+  filter(time_stamp=="2017-11-11") %>% 
+  group_by(seller_id) %>% 
+  summarise(s_activityOn11_count=n(),
+         s_userOn11_conversion=n_distinct(user_id[action_type==2])/n_distinct(user_id),
+         s_itemOn11_count=n_distinct(item_id),
+         s_catOn11_count=n_distinct(cat_id),
+         s_brandOn11_count=n_distinct(brand_id),
+         s_clickonlyOn11_ratio=sum(action_type==0)/n(),
+         s_atcOn11_flag=ifelse(1 %in% action_type,1,0),
+         s_atcOn11_count= sum(action_type==1),
+         s_atcOn11_ratio= sum(action_type==1)/n(),
+         s_purOn11_flag=ifelse(2 %in% action_type,1,0),
+         s_purOn11_count= sum(action_type==2),
+         s_purOn11_ratio= sum(action_type==2)/n(),
+         s_atfOn11_flag=ifelse(3 %in% action_type,1,0),
+         s_atfOn11_count= sum(action_type==3),
+         s_atfOn11_ratio= sum(action_type==3)/n()
+        )
+```
+
+####Merge Seller Features
+
+```{r}
+merge3<- merge(myuserlog5,myuserlog6,by=c("seller_id"),all=TRUE)
+```
+
+###Merge All Features
+
+```{r}
+myuserlog<- merge(merge1,merge2,by=c("user_id"),all.x= TRUE)
+myuserlog<- merge(myuserlog,merge3,by=c("seller_id"),all.x = TRUE)
+```
+
+####Replace NA features with 0
+
+```{r}
+ myuserlog[is.na(myuserlog)] <- 0
+```
+
+###Merge UserInfo
+
+```{r}
+myuserlog<- merge(myuserlog,userinfo,by=c("user_id"),all.x = TRUE)
+```
+
+##Data Manipulation (training and tests sets)
+
+###Merge with userlog
+
+```{r}
+merged_train<-merge(train,myuserlog, by=c("user_id","seller_id"),all.x=TRUE)
+summary(merged_train)
+merged_test<-merge(test,myuserlog, by=c("user_id","seller_id"),all.x=TRUE)
+summary(merged_test)
+```
+
+###Convert factor variables
+
+```{r}
+
+merged_train$u_s_atcBefore11_flag = as.factor(merged_train$u_s_atcBefore11_flag)
+merged_train$u_s_purBefore11_flag = as.factor(merged_train$u_s_purBefore11_flag)
+merged_train$u_s_atfBefore11_flag = as.factor(merged_train$u_s_atfBefore11_flag)
+merged_train$u_s_atcOn11_flag = as.factor(merged_train$u_s_atcOn11_flag)
+merged_train$u_s_purOn11_flag = as.factor(merged_train$u_s_purOn11_flag)
+merged_train$u_s_atfOn11_flag = as.factor(merged_train$u_s_atfOn11_flag)
+
+merged_train$u_atcBefore11_flag = as.factor(merged_train$u_atcBefore11_flag)
+merged_train$u_purBefore11_flag = as.factor(merged_train$u_purBefore11_flag)
+merged_train$u_atfBefore11_flag = as.factor(merged_train$u_atfBefore11_flag)
+merged_train$u_atcOn11_flag = as.factor(merged_train$u_atcOn11_flag)
+merged_train$u_purOn11_flag = as.factor(merged_train$u_purOn11_flag)
+merged_train$u_atfOn11_flag = as.factor(merged_train$u_atfOn11_flag)
+
+merged_train$s_atcBefore11_flag = as.factor(merged_train$s_atcBefore11_flag)
+merged_train$s_purBefore11_flag = as.factor(merged_train$s_purBefore11_flag)
+merged_train$s_atfBefore11_flag = as.factor(merged_train$s_atfBefore11_flag)
+merged_train$s_atcOn11_flag = as.factor(merged_train$s_atcOn11_flag)
+merged_train$s_purOn11_flag = as.factor(merged_train$s_purOn11_flag)
+merged_train$s_atfOn11_flag = as.factor(merged_train$s_atfOn11_flag)
+
+merged_train$age_range = as.factor(merged_train$age_range)
+merged_train$gender = as.factor(merged_train$gender)
+
+merged_test$u_s_atcBefore11_flag = as.factor(merged_test$u_s_atcBefore11_flag)
+merged_test$u_s_purBefore11_flag = as.factor(merged_test$u_s_purBefore11_flag)
+merged_test$u_s_atfBefore11_flag = as.factor(merged_test$u_s_atfBefore11_flag)
+merged_test$u_s_atcOn11_flag = as.factor(merged_test$u_s_atcOn11_flag)
+merged_test$u_s_purOn11_flag = as.factor(merged_test$u_s_purOn11_flag)
+merged_test$u_s_atfOn11_flag = as.factor(merged_test$u_s_atfOn11_flag)
+
+merged_test$u_atcBefore11_flag = as.factor(merged_test$u_atcBefore11_flag)
+merged_test$u_purBefore11_flag = as.factor(merged_test$u_purBefore11_flag)
+merged_test$u_atfBefore11_flag = as.factor(merged_test$u_atfBefore11_flag)
+merged_test$u_atcOn11_flag = as.factor(merged_test$u_atcOn11_flag)
+merged_test$u_purOn11_flag = as.factor(merged_test$u_purOn11_flag)
+merged_test$u_atfOn11_flag = as.factor(merged_test$u_atfOn11_flag)
+
+merged_test$s_atcBefore11_flag = as.factor(merged_test$s_atcBefore11_flag)
+merged_test$s_purBefore11_flag = as.factor(merged_test$s_purBefore11_flag)
+merged_test$s_atfBefore11_flag = as.factor(merged_test$s_atfBefore11_flag)
+merged_test$s_atcOn11_flag = as.factor(merged_test$s_atcOn11_flag)
+merged_test$s_purOn11_flag = as.factor(merged_test$s_purOn11_flag)
+merged_test$s_atfOn11_flag = as.factor(merged_test$s_atfOn11_flag)
+
+merged_test$age_range = as.factor(merged_test$age_range)
+merged_test$gender = as.factor(merged_test$gender)
+```
+
+###Split train.csv into training and validation set
+
+```{r}
+n <- nrow(merged_train)
+shuffled_train <- merged_train[sample(n), ]
+train_indices <- 1:round(0.7 * n)
+mytrain <- shuffled_train[train_indices, ]
+test_indices <- (round(0.7 * n) + 1):n
+myvalidate <- shuffled_train[test_indices, ]
+```
+
+#### Drop features where all elements in the column have the same value 
+##### (GLM cannot be implemented if contrast in features is absent)
+```{r}
+mytrain_new = mytrain[,-c(12,13,14,26,56,74,86)]
+myvalidate_new = myvalidate[,-c(12,13,14,26,56,74,86)]
+merged_test_new = merged_test[,-c(12,13,14,26,56,74,86)]
+```
+
+## Selecting the most important features
+
+#### Since 87 features (after removing features where contrast was absent) will unnecessarily complicate the model, lead to overfitting and reduce degrees of freedom, we will select the most important features using: 1. Overall importance of each variable using the 'caret' package and 2. Observe significant features in the logistic regression
+
+```{r}
+
+z = glm(label~ . - user_id - seller_id - label, data = mytrain_new, family=binomial(link = 'logit'))
+summary(z)
+
+#install.packages("caret")
+library(caret)
+varImp(z)
+```
+#### We will select the 37 most important features as they are also suggested to be significant by the logistic regression results
+
+## Logistic Regression using 'SELECTED' Features
+
+```{r}
+
+z.final = glm(label~ u_s_catBefore11_count+ u_s_clickonlyBefore11_ratio+ u_s_atfBefore11_count+ u_s_itemOn11_count+ u_s_catOn11_count+ u_s_catOn11_count+ u_s_brandOn11_count+ u_s_clickonlyOn11_ratio+ u_s_purOn11_count+ u_activityBefore11_count+ u_sellerBefore11_conversion+ u_itemBefore11_count+ u_brandBefore11_count+ u_clickonlyBefore11_ratio+ u_purBefore11_flag+ u_purBefore11_count+ u_purBefore11_ratio+ u_sellerOn11_conversion+ u_brandOn11_count+ s_activityBefore11_count+ s_userBefore11_conversion+ s_brandBefore11_count+ s_clickonlyBefore11_ratio+ s_atcBefore11_count+ s_atcBefore11_ratio+ s_purBefore11_count+ s_atfBefore11_count+ s_userOn11_conversion+ s_itemOn11_count+ s_brandOn11_count+ s_atcOn11_flag+ s_atcOn11_count+ s_atcOn11_ratio+ s_purOn11_ratio+ age_range+ gender, data = mytrain_new, family=binomial(link = 'logit'))
+
+summary(z.final)
+```
+
+## Performance of our model: Hit rate using final model containing only 'SELECTED' features
+
+```{r}
+prob_validate = predict(z.final, myvalidate_new, type = "response")
+label_pred = ifelse(prob_validate<0.5,0,1)
+sum(table(myvalidate_new$label, label_pred)[1,1],table(myvalidate_new$label, label_pred)[2,2])/nrow(myvalidate_new)
+```
+
+##### In usual circumstances we would have compared the performance of this model with other candidate models such as Random Forest, Naive Bayes, kNN, and picked the model with the lowest error or best performance, but due to the complexity of this large dataset and unavailability of high processing power computer, we will have to limit our model to only logistic regression (glm)
+###### Hit rate from this model (=93.9%) is very good, hence we will proceed ahead with this model to perform predictions about probabilities of a user doing a repeated purchase after Double 11 at a Seller.
+
+
+## Predicting probabilities of a user doing a repeated purchase after Double 11 at a Seller
+
+```{r}
+colnames(merged_test_new)[3] = "label"
+options(scipen=99)
+merged_test_new$prob = predict(z.final, merged_test_new, type = "response")
+submission = cbind(merged_test_new$user_id, merged_test_new$seller_id, round(merged_test_new$prob,4))
+colnames(submission) = c("user_id", "seller_id", "prob")
+write.csv(submission, file="submission.csv")
+submission[1:50,]
+```
+
+
+
+
+
