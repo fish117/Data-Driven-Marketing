@@ -1,0 +1,117 @@
+---
+title: "HW 2"
+author: "Iris"
+date: "2018???5???9???"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+############ Q1 ########
+
+########################
+
+```{r}
+# Set working directory
+setwd("C:/Users/lenovo/Desktop/data driven/week 4/Individual 2")
+email<-read.csv("Email_tracking.csv")
+head(email)
+summary(email)
+```
+
+#check if there is a difference in open rate by sending emails on different days from Sunday to Monday
+```{r}
+library(stringr)
+class(email$Open_Rate)
+
+op<-as.numeric(str_sub(email$Open_Rate,1,4))#input response variable
+day<-email$Weekday #input factor
+df<-data.frame(op=op,day=day) # create a data frame
+aov<-aov(op~day,data=df) #analysis of variance
+summary(aov)
+
+```
+
+#from the output,P-value=0.0162<0.05 which means it is reasonable to reject the null hypothesis. Therefore, there is a difference in open rate by sending emails on different days from Sunday to Monday.
+
+
+```{r}
+
+plot(op~day,data=df) #plot a box-plot
+library(dplyr)
+
+group_by(df, day) %>%
+ summarise(mean=mean(op))
+```
+ 
+ #from the output, Wednesday (58.40476) has the highest mean of open rate.
+
+
+
+
+
+
+
+
+
+
+
+############## Q2  ##########
+
+################################
+
+
+```{r}
+# Set working directory
+setwd("C:/Users/lenovo/Desktop/data driven/week 4/individual 2")
+#import data directly
+library(haven)
+mmcase <- read_dta("mmcase.dta")
+View(mmcase)
+mmcase <-data.frame(mmcase)# convert tweets to a data frame
+head(mmcase)
+```
+# business problem 5 needs to use log transforom for mmSales,mmprice,tpprice,trprice,sbprice
+
+```{r}
+
+mmcase$lmmsales<-log(as.numeric(mmcase$mmSales))
+mmcase$lmmprice<-log(as.numeric(mmcase$pricemm))
+mmcase$ltpprice<-log(as.numeric(mmcase$pricetropprem))
+mmcase$ltrprice<-log(as.numeric(mmcase$pricetropreg))
+mmcase$lsbprice<-log(as.numeric(mmcase$pricestore))
+
+```
+
+#fit the log-log sales model
+```{r}
+
+mod1<-lm(mmcase$lmmsales~mmcase$lmmprice+mmcase$ltpprice+mmcase$ltrprice+mmcase$lsbprice+mmcase$admm+mmcase$adtropprem+mmcase$adtropreg+mmcase$adstore)
+summary(mod1)
+```
+#now, the adj R^2 is 0.7978.
+# from the F-test, the p-value<0.05, therefore, this whole model is significant.
+
+
+
+
+#new new control model with number of store assistants.
+```{r}
+mod2<-lm(mmcase$lmmsales~mmcase$lmmprice+mmcase$ltpprice+mmcase$ltrprice+mmcase$lsbprice+mmcase$admm+mmcase$adtropprem+mmcase$adtropreg+mmcase$adstore+mmcase$storeAssistants)
+summary(mod2)
+```
+#from the F-test,the p-value<0.05 which means this model is significant.
+#the adj-R^2 is 0.8355 which is higher than that of model 1 (0.7978). Therefore, model 2 is better.
+# the number of store will affect this result.
+
+
+```{r}
+library(tinytex)
+library(knitr)
+```
+

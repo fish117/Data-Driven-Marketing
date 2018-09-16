@@ -1,0 +1,95 @@
+---
+title: "Marketing Mix Modelling"
+output: html_notebook
+---
+# Copyright of and Courtesy to Gabriel Mohanna
+
+# Suppose we check the relationship of sales and advertisement directly
+```{r}
+sales <- c(37, 89, 82, 58, 110, 77, 103, 78, 95, 106, 98, 96, 68, 96, 157, 198, 145, 132, 96, 135)
+ad <- c(6, 27, 0, 0, 20, 0, 20, 0, 0, 18, 9, 0, 0, 0, 13, 25, 0, 15, 0, 0)
+
+modFit.0 <- lm(sales~ad)
+summary(modFit.0)
+```
+# The R-squared value is very low. The model is not applausible. 
+
+
+# Try looking at the variable distribution and consider using log transform
+```{r}
+plot(sales, ad)
+hist(ad)
+sales <- log(as.numeric(sales))
+
+ad <-log(as.numeric(ad+1))
+
+modFit.0 <- lm(sales~ad)
+summary(modFit.0)
+```
+
+
+
+### Complexity 1: The Adstock Consideration
+# Ad memory can be accumulated even though with diminishing effect. This is called ad stock.
+# Let us assume every period will receive 50% memory effect of last period
+# Sales = Base + b1·f(Advertising|α)
+
+# where f() is a the adstock transformation function for the Advertising variable given an adstock of α.
+# Other functional forms besides adstock can be incorporated here as well. 
+
+```{r}
+sales <- c(37, 89, 82, 58, 110, 77, 103, 78, 95, 106, 98, 96, 68, 96, 157, 198, 145, 132, 96, 135)
+ad <- c(6, 27, 0, 0, 20, 0, 20, 0, 0, 18, 9, 0, 0, 0, 13, 25, 0, 15, 0, 0)
+
+ad.adstock <- as.numeric(filter(x=ad, filter=.50, method="recursive"))
+ad.adstock
+
+modFit.1 <- lm(sales~ad.adstock)
+summary(modFit.1)
+```
+# Notice how we improved R2 from 0.184 to 0.252. But there are more reasons to be discovered
+
+
+#Complexity 2: More Advertising Variables
+```{r}
+sales <- c(37, 89, 82, 58, 110, 77, 103, 78, 95, 106, 98, 96, 68, 96, 157, 198, 145, 132, 96, 135)
+tv <- c(6, 27, 0, 0, 20, 0, 20, 0, 0, 18, 9, 0, 0, 0, 13, 25, 0, 15, 0, 0)
+online <- c(3, 0, 4, 0, 5, 0, 0, 0, 8, 0, 0, 5, 0, 11, 16, 11, 5, 0, 0, 15)
+
+tv.adstock <- as.numeric(filter(x=tv, filter=.3, method="recursive"))
+online.adstock <- as.numeric(filter(x=online, filter=.3, method="recursive"))
+
+modFit.2 <- lm(sales~tv.adstock+online.adstock)
+summary(modFit.2)
+```
+# Now, our model is even stronger with R2 of 0.769.
+
+
+# Complexity 3: Changing Base & Other Variables
+# So far we assumed the Base to be a constant. But it is not always constant. For example, the growth of population may lead to a trend for sales growth.  
+# Other variables should be considered:
+# Seasonal variables 
+# Distribution points
+# Pricing changes
+
+```{r}
+sales <- c(37, 89, 82, 58, 110, 77, 103, 78, 95, 106, 98, 96, 68, 96, 157, 198, 145, 132, 96, 135)
+tv <- c(6, 27, 0, 0, 20, 0, 20, 0, 0, 18, 9, 0, 0, 0, 13, 25, 0, 15, 0, 0)
+online <- c(3, 0, 4, 0, 5, 0, 0, 0, 8, 0, 0, 5, 0, 11, 16, 11, 5, 0, 0, 15)
+trend <- 1:20
+
+tv.adstock <- as.numeric(filter(x=tv, filter=.3, method="recursive"))
+online.adstock <- as.numeric(filter(x=online, filter=.3, method="recursive"))
+
+modFit.3 <- lm(sales~trend+tv.adstock+online.adstock)
+summary(modFit.3)
+```
+# Model has a good fit with R-squared value at 0.94
+
+# Every 2.17 units of TV will have 1 unit of sales increase
+# Every 2.98 units of online ad will have 1 unit of sales increase
+# TV is more efficient than online in stimulating sales
+
+
+
+
