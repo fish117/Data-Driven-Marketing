@@ -1,0 +1,175 @@
+library(twitteR)
+library(ROAuth)
+library(tm)
+library(SnowballC)
+
+# Set working directory
+setwd("C:/Users/lenovo/Desktop/data driven/week 3/Individual 1")
+tweets <- readRDS("Target.RDS")
+tweets.df <- twListToDF(tweets)# convert tweets to a data frame
+tweets.df[190, c("id", "created", "screenName", "replyToSN", "favoriteCount", "retweetCount", "longitude", "latitude", "text")]# tweet #190
+writeLines(strwrap(tweets.df$text[190], 60))
+
+
+myCorpus <- Corpus(VectorSource(tweets.df$text))
+
+
+# Text Cleaning
+# convert to lower case
+myCorpus <- tm_map(myCorpus, PlainTextDocument)
+myCorpus <- tm_map(myCorpus, stemDocument)
+myCorpus <- tm_map(myCorpus, function(x) iconv(x,'UTF-8', 'ASCII', sub=' '))
+# remove anything other than English letters or space
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeNumPunct))
+
+# convert to lower case
+myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+
+# remove stopwords
+myStopwords <- c(setdiff(stopwords('english'), c("target")),
+                 "use", "see", "used", "via", "amp", "we", "us", "you", "will", "check", "can","target","just","wer")
+
+myCorpus <- tm_map(myCorpus, removeWords, myStopwords)
+# remove extra whitespace
+myCorpus <- tm_map(myCorpus, stripWhitespace)
+
+# keep a copy for stem completion later
+myCorpusCopy <- myCorpus
+
+# have a good habit to check frequently
+writeLines(strwrap(myCorpus[[190]]$content, 60))
+
+
+stemCompletion2 <- function(x, dictionary) {
+  x <- unlist(strsplit(as.character(x), " "))
+  x <- x[x != ""]
+  x <- stemCompletion(x, dictionary=dictionary)
+  x <- paste(x, sep="", collapse=" ")
+  stripWhitespace(x)
+}
+
+myCorpus <- lapply(myCorpus, stemCompletion2, dictionary=myCorpusCopy)
+myCorpus <- Corpus(VectorSource(myCorpus))
+writeLines(strwrap(myCorpus[[190]]$content, 60))
+
+# count word frequence
+wordFreq <- function(corpus, word) {
+  results <- lapply(corpus,
+                    function(x) { grep(as.character(x), pattern=paste0("\\<",word)) }
+  )
+  sum(unlist(results))
+}
+
+# replace oldword with newword
+replaceWord <- function(corpus, oldword, newword) {
+  tm_map(corpus, content_transformer(gsub),
+         pattern=oldword, replacement=newword)
+}
+myCorpus <- replaceWord(myCorpus, "fb", "facebook")
+
+tdm <- TermDocumentMatrix(myCorpus, control = list(wordLengths = c(1, Inf)))
+tdm
+
+# inspect frequent words
+(freq.terms <- findFreqTerms(tdm, lowfreq = 50))
+
+term.freq <- rowSums(as.matrix(tdm))
+term.freq <- subset(term.freq, term.freq >= 90)
+df <- data.frame(term = names(term.freq), freq = term.freq)
+
+# frequent diagram
+library(ggplot2)
+ggplot(df, aes(x=term, y=freq)) + geom_bar(stat="identity") +
+  xlab("Terms") + ylab("Count") + coord_flip() +
+  theme(axis.text=element_text(size=7))
+
+
+m <- as.matrix(tdm)
+
+# calculate the frequency of words and sort it by frequency
+word.freq <- sort(rowSums(m), decreasing = T)
+library(wordcloud)
+pal <- brewer.pal(9, "BuGn")[-(1:4)]
+wordcloud(words = names(word.freq), freq = word.freq, min.freq = 20,
+          random.order = F, colors = pal)
+
+
+library(graph)
+library(Rgraphviz)
+plot(tdm, term = freq.terms, corThreshold = 0.2, weighting = T)
+
+
+dtm <- as.DocumentTermMatrix(tdm)
+library(topicmodels)
+lda <- LDA(dtm, k = 10) # find 10 topics
+term <- terms(lda, 7) # first 7 terms of every topic
+(term <- apply(term, MARGIN = 2, paste, collapse = ", "))
+
+###########2
+
+#######################
+topics <- topics(lda) # 1st topic identified for every document (tweet)
+topics <- data.frame(date=as.Date(tweets.df$created), topic=topics)
+ggplot(topics, aes(date, fill = term[topic])) +
+  geom_density(position = "stack")
+
+write.csv(term,"model_cluster.csv")
+
+
+
+#################3
+
+#################################
+
+library(sentiment)
+sentiments <- sentiment(tweets.df$text)
+table(sentiments$polarity)
+
+sentiments$score <- 0
+sentiments$score[sentiments$polarity == "positive"] <- 1
+sentiments$score[sentiments$polarity == "negative"] <- -1
+sentiments$date <- as.Date(tweets.df$created)
+result <- aggregate(score ~ date, data = sentiments, sum)
+plot(result, type = "l")
+summary(sentiments$score)
+
+
+tweets.df$text[1:3]
+
+
+
+
+##############  Q  2 ##################
+
+#######################################
+library(igraph)
+
+g1 <- read.table('social.txt')
+head(g1)
+graph1 <- graph_from_data_frame(g1, directed = FALSE, vertices = NULL)
+plot(graph1)
+
+#1
+# in- and out-degree centrality score for directed network
+graph1 <- graph_from_data_frame(g1)
+degree(graph1, mode = "in")
+degree(graph1, mode = "out")
+       
+#2
+graph1 <- graph_from_data_frame(g1, directed = FALSE, vertices = NULL)
+ed <- edge_density(graph1, loops=FALSE)
+ed
+
+
+#3
+graph1 <- graph_from_data_frame(g1, directed = FALSE, vertices = NULL)
+betweenness(graph1)# betweenness centrality
+which.max(betweenness(graph1))
+
+
+#4
+clique_num(graph1)
+cliques(graph1, min = 3)
+cliques(graph1, min = 4)
+components(graph1)
