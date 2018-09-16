@@ -1,0 +1,359 @@
+---
+title: "BAMS517 Group Project"
+output: html_document
+---
+
+# Question 2
+
+
+```{r}
+ted_main = read.csv("/Users/Isha/Downloads/Period 5/Data Driven Marketing | Tao Wang/Group Project/ted_main.csv")
+ted=ted_main
+ggplot(ted, aes(x="" y=views)) + geom_boxplot(aes(fill="green"))
+
+```
+## Q1: Which variable is more suitable to measure the video's popularity, number of views or comments?
+
+
+#### Answer:
+There are a large number of people who only view a video but do not comment on it mostly because commenting is a high involvement time consuming activity. Also, people might comment extensively on a controversial-topic in a TED talk but that video might not actually be viewed by a lot of people. Hence, measuring the popularity of a video by its number of comments could be misleading whereas number of views is an unbiased and absolute metric.
+
+## Data Cleaning and Feature Creation
+```{r}
+library(jsonlite)
+library(dplyr)
+library(tidyverse)
+#install.packages("corrplot")
+library(corrplot)
+
+# Using UNIX timestamp to create the following features: Published_Date, Published_Year, Published_Month, Published_Week
+ted$Published_Date = as.Date(as.POSIXct(ted$published_date, origin="1970-01-01"))
+ted$Published_Year = as.factor(format(as.Date(ted$Published_Date, format="%Y/%m/%d"),"%Y"))
+ted$Published_Month = as.factor(format(as.Date(ted$Published_Date, format="%Y/%m/%d"),"%m"))
+ted$Published_Day <- as.factor(weekdays(as.Date(ted$Published_Date)))
+
+# Correlation among numeric variables
+sub_names = c("comments", "duration", "languages", "num_speaker", "views")
+ted_sub = ted[,sub_names]
+cor(ted_sub)
+#corrplot::corrplot(as.matrix(ted_sub), method = 'color', addCoef.col = "grey")
+
+# Processing 'ratings'
+ratings_df= c()
+for (i in 1:nrow(ted)){
+  ratings = fromJSON(str_replace_all(ted$ratings[i],"'",'"'))
+  ratings = ratings[,-1]
+  ratings = ratings%>%spread(name, count)
+  ratings_df = rbind(ratings, ratings_df)
+}
+
+ted = cbind(ted, ratings_df)
+ted$Positive = ted$Beautiful + ted$Courageous + ted$Fascinating + ted$Funny + ted$Informative + ted$Ingenious + ted$Inspiring + ted$`Jaw-dropping` + ted$Persuasive
+ted$Neutral = ted$OK + ted$Longwinded
+ted$Negative = ted$Obnoxious + ted$Unconvincing
+
+ted$rating_category = ifelse(ted$Positive>ted$Neutral & ted$Positive>ted$Negative, "Positive", ifelse(ted$Neutral>ted$Positive & ted$Neutral>ted$Negative, "Neutral", "Negative"))
+
+# Processing 'event'
+ted$event = gsub("[[:digit:]]", "", ted$event)
+ted = full_join(ted, ted%>%count(event), by="event")
+ted$event = ifelse(ted$n<20, "Others", ted$event)
+ted$event = as.factor(ted$event)
+
+
+# Calculating speaker count
+library(MASS)
+library(data.table)
+speaker_frequency=as.data.table(table(ted$main_speaker))
+colnames(speaker_frequency)<-c("main_speaker","speaker_frequency")
+ted = full_join(ted,speaker_frequency,by=c("main_speaker"))
+```
+
+###### Combining all tags into one Corpus and all occupation into one corpus
+```{r}
+library(tm)
+myCorpus <- Corpus(VectorSource(ted$tags))
+myCorpus2 <- Corpus(VectorSource(ted$speaker_occupation))
+myCorpus <- tm_map(myCorpus, PlainTextDocument)
+myCorpus2 <- tm_map(myCorpus2, PlainTextDocument)
+
+#remove anything other than English letters or space
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeNumPunct))
+myCorpus2 <- tm_map(myCorpus2, content_transformer(removeNumPunct))
+
+# convert to lower case
+myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+myCorpus2 <- tm_map(myCorpus2, content_transformer(tolower))
+
+#myCorpus <- tm_map(myCorpus, removeWords, myStopwords)
+# remove extra whitespace
+myCorpus <- tm_map(myCorpus, stripWhitespace)
+myCorpus2 <- tm_map(myCorpus2, stripWhitespace)
+```
+
+###### Remove stopwords
+```{r}
+myStopwords <- c(setdiff(stopwords('english'), c("id","count","title","slug","viewcount","httpspetedcdncomimagestedxjpg",
+                                                 "hero","persuas","ingenious","jawdrop")),
+                 'and','of','in','expert','social','the','for','id,"count","http','ted','speaker','name','images','jpg','duration')
+myCorpus2 <- tm_map(myCorpus2, removeWords, myStopwords)
+
+```
+
+
+###### Counting word frequency
+```{r}
+wordFreq <- function(corpus, word) {
+  results <- lapply(corpus,
+                    function(x) { grep(as.character(x), pattern=paste0("\\<",word)) }
+  )
+  sum(unlist(results))
+}
+tdm <- TermDocumentMatrix(myCorpus, control = list(wordLengths = c(1, Inf)))
+tdm2 <- TermDocumentMatrix(myCorpus2, control = list(wordLengths = c(1, Inf)))
+term.freq <- rowSums(as.matrix(tdm))
+term.freq2<- rowSums(as.matrix(tdm2))
+#term.freq <- subset(term.freq, term.freq >= 150)
+df <- data.frame(term = names(term.freq), freq = term.freq)
+df2 <- data.frame(term = names(term.freq2), freq = term.freq2)
+```
+
+
+###### Counting number of videos associated with each tag and their views
+
+```{r}
+# Cleaning data 
+df$tag<-paste("\\b",df$term, "\\b")
+df2$occupation<-paste("\\b",df2$term, "\\b")
+ted$cleantag<-gsub('[[:punct:] ]+',' ',ted$tags)
+ted$cleaned_occupation<-gsub('[[:punct:] ]+',' ',ted$speaker_occupation)
+count_tag=0
+views_tag=0
+for (i in 1:nrow(df)){
+  for(j in 1:nrow(ted)){
+    if(grepl(df$tag[i],ted$cleantag[j]))
+    {
+    count_tag=count_tag+1
+    views_tag=views_tag+ted$views[j]
+    }
+  }
+    df$num_video[i]=count_tag
+    df$Views[i]<-views_tag
+    }
+```
+
+###### Counting number of videos associated with each occupation and their views
+
+```{r}
+count_occ=0
+Views_occ=0
+for (i in 1:nrow(df2)){
+  for(j in 1:nrow(ted)){
+    if(grepl(df2$occupation[i],ted$cleaned_occupation[j]))
+    {
+    count_occ=count_occ+1
+    Views_occ=Views_occ+ted$views[j]
+    }
+  }
+    df2$num_video[i]=count_occ
+    df2$Views[i]<-Views_occ
+    }
+```
+
+
+##### Sorting the dataframe according to the frequency of the tags and recording data of only top 10 frequently appearing tags
+```{r}
+#Picking up top 10 tags
+
+sorteddf<-df[order(-df$freq),][1:11,]
+sorteddf2<-df2[order(-df2$freq),][1:11,]
+#Removing Tedx
+sorteddf<-sorteddf[!(sorteddf$term=="tedx"),]
+```
+'tedX' as a tag was removed because here we are using tags to determine the theme of a video while 'tedX' actually represents the event
+
+
+###### Finding the proportion of views in each tag
+```{r}
+sorteddf$Proportion<-(sorteddf$num_video/sorteddf$Views)
+sorteddf2$Proportion<-(sorteddf2$num_video/sorteddf2$Views)
+```
+
+###### Adding tags to main dataset
+```{r}
+ted$technology = ifelse(grepl("technology",ted$cleantag),1,0)
+ted$science = ifelse(grepl("science",ted$cleantag),1,0)
+ted$global = ifelse(grepl("global",ted$cleantag),1,0)
+ted$design = ifelse(grepl("design",ted$cleantag),1,0)
+ted$issues = ifelse(grepl("issues",ted$cleantag),1,0)
+ted$health = ifelse(grepl("health",ted$cleantag),1,0)
+ted$culture = ifelse(grepl("culture",ted$cleantag),1,0)
+ted$business = ifelse(grepl("business",ted$cleantag),1,0)
+ted$change = ifelse(grepl("change",ted$cleantag),1,0)
+ted$entertainment = ifelse(grepl("entertainment",ted$cleantag),1,0)
+```
+
+
+### Question 2: What characteristics of TED Talks predict their popularity?
+
+#### Visualisations
+
+##### Number of videos with each tag
+```{r}
+ggplot(sorteddf, aes(x=reorder(term,-num_video), y=num_video)) + 
+  geom_bar(stat="identity", width=.5, fill="tomato3") + 
+  labs(title="Tags with number of videos")+
+  xlab("Tags") +
+  ylab("Number of videos") 
+```
+
+
+##### What are the proportion (or percentage) of views associated with each tag?
+```{r}
+ggplot(sorteddf, aes(x=reorder(term,-Proportion), y=Proportion)) + 
+  geom_bar(stat="identity", width=.5, fill="tan1") + 
+  labs(title="Proportion of views associated with tags")+
+  xlab("Tags")+
+  ylab("Proportion of views")
+```
+
+
+#Occupation 
+Graph of number of videos associated with top 10 popular occupations
+```{r}
+ggplot(sorteddf2, aes(x=reorder(term,-num_video), y=num_video)) + 
+  geom_bar(stat="identity", width=.5, fill="tomato3") + 
+  labs(title="Occupation with number of videos")+
+  xlab("Occupation") +
+  ylab("Number of videos") 
+```
+Graph of number of views associated with top 10 popular occupations
+```{r}
+ggplot(sorteddf2, aes(x=reorder(term,-Proportion), y=Proportion)) + 
+  geom_bar(stat="identity", width=.5, fill="tan1") + 
+  labs(title="Views associated with occupation")+
+  ylim(1000,2500)+
+  xlab("Occupation")+
+  ylab("Proportion of views")
+```
+
+
+
+```{r}
+# Views - Number of Speakers
+library(ggplot2)
+options(scipen = 999)
+ted$num_speaker = as.factor(ted$num_speaker)
+ggplot(ted, aes(x=num_speaker, y=views)) + geom_boxplot(aes(fill=num_speaker)) + ylim(0,5000000)
+```
+
+
+```{r}
+# Views - Comments
+ggplot(ted, aes(x=comments, y=views)) + geom_point(col="red")+labs(title="Views vs Comments")
+```
+
+
+```{r}
+# Views - Duration
+ggplot(ted, aes(x=duration, y = views)) + geom_point(col="blue")+labs(title="Views vs Duration")
+```
+
+
+```{r}       
+# Views - Event Category
+ggplot(ted, aes(x=event, y = views)) + geom_boxplot(aes(fill=event)) + ylim(0,2000000)+labs(title="Views vs Event")
+```
+
+
+```{r}
+# Views - Langauges
+ggplot(ted, aes(x=languages, y = views)) + geom_point(col="blue")+labs(title="Views vs Languages")
+```
+
+
+```{r}
+# Views - Weekday
+ggplot(ted, aes(x=Published_Day, y=views)) + geom_boxplot(aes(fill=Published_Day))+labs(title="Views vs Published Day")+ylim(0,2000000)
+```
+
+
+```{r}
+# Views - Month
+ggplot(ted, aes(x=Published_Month, y=views)) + geom_boxplot(aes(fill=Published_Month))+labs(title="Views vs Published Month")+ylim(0,2000000)
+```
+
+
+```{r}
+# Views - Year
+ggplot(ted, aes(x=Published_Year, y=views)) + geom_boxplot(aes(fill=Published_Year))+labs(title="Views vs Published Year")+ylim(0,2000000)
+```
+
+#### Model-based evaluation of characteristics
+
+```{r}
+ted_final = ted[,c("views", "duration", "event", "languages", "num_speaker", "speaker_frequency", "Published_Year", "Published_Month", "Published_Day", "Beautiful", "Courageous", "Fascinating", "Funny", "Informative", "Ingenious", "Inspiring", "Jaw-dropping", "Persuasive", "OK", "Longwinded", "Obnoxious", "Unconvincing", "technology", "science", "global", "design", "issues", "health", "culture", "business", "change", "entertainment")]
+
+n <- nrow(ted)
+shuffled_train <- ted_final[sample(n), ]
+train_indices <- 1:round(0.7 * n)
+ted_train <- shuffled_train[train_indices, ]
+test_indices <- (round(0.7 * n) + 1):n
+ted_test <- shuffled_train[test_indices, ]
+
+ted.lm = lm(views ~ . - views, data=ted_train)
+summary(ted.lm)
+```
+
+
+### Question 3: Do the characteristics that predict popularity change over time? 
+
+#### Visualisations - Year Wise
+
+##### Weekday
+```{r}
+temp=ted%>%group_by(Published_Year, Published_Day)%>%summarise(views_weekly = sum(views))
+temp2 = temp%>%group_by(Published_Year)%>%summarise(views_yearly = sum(views_weekly))
+temp3 = full_join(temp, temp2)
+temp3$prop_view = temp3$views_weekly/temp3$views_yearly
+
+ggplot(data=temp3, aes(x=Published_Day, y=prop_view))+geom_point()+geom_line(col="red")+facet_wrap(~Published_Year,ncol = 1)#sizing
+```
+
+##### Duration
+```{r}
+ted%>%group_by(Published_Year)%>%ggplot(aes(x=Published_Year, y=duration,fill=Published_Year))+geom_boxplot()
+```
+
+##### Languages
+```{r}
+ ted%>%group_by(Published_Year)%>%ggplot(aes(x=Published_Year, y=languages,fill=Published_Year))+geom_boxplot()
+```
+
+
+
+### Model-based evaluation of change in characteristics that predict popularity over time
+```{r}
+str(ted_final%>%filter(Published_Year==2006))
+ted_lm_2006 = lm(views ~ . - views - Published_Year, data=ted_final%>%filter(Published_Year==2006))
+summary(ted_lm_2006)
+```
+
+
+ted.2007 = ted%>%filter(Published_Year==2007)
+ted.2008 = ted%>%filter(Published_Year==2008)
+ted.2009 = ted%>%filter(Published_Year==2009)
+ted.2010 = ted%>%filter(Published_Year==2010)
+ted.2011 = ted%>%filter(Published_Year==2011)
+ted.2012 = ted%>%filter(Published_Year==2012)
+ted.2013 = ted%>%filter(Published_Year==2013)
+ted.2014 = ted%>%filter(Published_Year==2014)
+ted.2015 = ted%>%filter(Published_Year==2015)
+ted.2016 = ted%>%filter(Published_Year==2016)
+ted.2017 = ted%>%filter(Published_Year==2017)
+
+
+
+
+```
