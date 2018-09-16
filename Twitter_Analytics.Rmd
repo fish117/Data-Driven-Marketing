@@ -1,0 +1,268 @@
+---
+title: "Twitter Analytics"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(twitteR)
+library(ROAuth)
+library(tm)
+library(SnowballC)
+```
+
+# Set working directory
+```{r}
+setwd("/Users/Tao/Dropbox/Teaching/BAMA517_Tao/Class 3")
+```
+
+# Change the next four lines based on your own consumer_key, consume_secret, access_token, and access_secret. 
+```{r}
+consumer_key <- "7wHyVEbhs4R9hIXfKbZFB39UP"
+consumer_secret <- "xlSUGXBFQAabpj8N8uNIwfaBxbkF4AIdGFmNGtekDkayygz0J2"
+access_token <- "1529748594-KNS9lw0VMIDUypXCniet6zMMsPDUZGm57CORY00"
+access_secret <- "IpWDTuvt5LZu6G27Px9T3svTVlsv2sHWw7djuI78IHMqV"
+
+setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
+```
+
+# Getting the data
+```{r}
+tweets <- userTimeline("Nike", n = 3200)
+```
+
+# Check number of tweets
+```{r}
+(n.tweet <- length(tweets))
+```
+
+```{r}
+saveRDS(tweets, file="tweets.RDS")
+```
+
+### load tweets if you donot have access 
+```{r}
+tweets <- readRDS("tweets.RDS")
+```
+
+# convert tweets to a data frame
+```{r}
+tweets.df <- twListToDF(tweets)
+```
+
+# tweet #190
+```{r}
+tweets.df[190, c("id", "created", "screenName", "replyToSN", "favoriteCount", "retweetCount", "longitude", "latitude", "text")]
+```
+
+```{r}
+writeLines(strwrap(tweets.df$text[190], 60))
+```
+
+```{r}
+myCorpus <- Corpus(VectorSource(tweets.df$text))
+```
+# Text Cleaning
+# convert to lower case
+```{r}
+myCorpus <- tm_map(myCorpus, PlainTextDocument)
+myCorpus <- tm_map(myCorpus, stemDocument)
+myCorpus <- tm_map(myCorpus, function(x) iconv(x,'UTF-8', 'ASCII', sub=' '))
+
+# remove anything other than English letters or space
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeNumPunct))
+
+# convert to lower case
+myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+
+# remove stopwords
+myStopwords <- c(setdiff(stopwords('english'), c("do")),
+                 "use", "see", "used", "via", "amp", "we", "us", "you", "will", "check", "can")
+
+myCorpus <- tm_map(myCorpus, removeWords, myStopwords)
+# remove extra whitespace
+myCorpus <- tm_map(myCorpus, stripWhitespace)
+```
+
+# keep a copy for stem completion later
+```{r}
+myCorpusCopy <- myCorpus
+```
+
+# have a good habit to check frequently
+```{r}
+writeLines(strwrap(myCorpus[[190]]$content, 60))
+```
+
+```{r}
+stemCompletion2 <- function(x, dictionary) {
+  x <- unlist(strsplit(as.character(x), " "))
+  x <- x[x != ""]
+  x <- stemCompletion(x, dictionary=dictionary)
+  x <- paste(x, sep="", collapse=" ")
+  stripWhitespace(x)
+}
+
+myCorpus <- lapply(myCorpus, stemCompletion2, dictionary=myCorpusCopy)
+myCorpus <- Corpus(VectorSource(myCorpus))
+writeLines(strwrap(myCorpus[[190]]$content, 60))
+```
+
+# count word frequence
+```{r}
+wordFreq <- function(corpus, word) {
+  results <- lapply(corpus,
+                    function(x) { grep(as.character(x), pattern=paste0("\\<",word)) }
+  )
+  sum(unlist(results))
+}
+```
+
+# replace oldword with newword
+```{r}
+replaceWord <- function(corpus, oldword, newword) {
+  tm_map(corpus, content_transformer(gsub),
+         pattern=oldword, replacement=newword)
+}
+myCorpus <- replaceWord(myCorpus, "fb", "facebook")
+```
+
+
+```{r}
+tdm <- TermDocumentMatrix(myCorpus, control = list(wordLengths = c(1, Inf)))
+tdm
+```
+
+#idx <- which(dimnames(tdm)$Terms %in% c("nike", "do", "jersey"))
+##as.matrix(tdm[idx, 21:30])
+
+
+# inspect frequent words
+```{r}
+(freq.terms <- findFreqTerms(tdm, lowfreq = 50))
+
+term.freq <- rowSums(as.matrix(tdm))
+term.freq <- subset(term.freq, term.freq >= 90)
+df <- data.frame(term = names(term.freq), freq = term.freq)
+```
+
+# plot frequency check
+```{r}
+library(ggplot2)
+ggplot(df, aes(x=term, y=freq)) + geom_bar(stat="identity") +
+  xlab("Terms") + ylab("Count") + coord_flip() +
+  theme(axis.text=element_text(size=7))
+```
+
+# Word Cloud
+```{r}
+m <- as.matrix(tdm)
+
+# calculate the frequency of words and sort it by frequency
+word.freq <- sort(rowSums(m), decreasing = T)
+# colors
+```
+
+```{r}
+library(wordcloud)
+pal <- brewer.pal(9, "BuGn")[-(1:4)]
+wordcloud(words = names(word.freq), freq = word.freq, min.freq = 50,
+          random.order = F, colors = pal)
+```
+
+
+# Install graph package if you don't have it. No cran install but follow the next two lines
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("graph")
+# biocLite("Rgraphviz")
+
+```{r}
+library(graph)
+library(Rgraphviz)
+plot(tdm, term = freq.terms, corThreshold = 0.2, weighting = T)
+```
+
+```{r}
+dtm <- as.DocumentTermMatrix(tdm)
+library(topicmodels)
+lda <- LDA(dtm, k = 8) # find 8 topics
+term <- terms(lda, 7) # first 7 terms of every topic
+(term <- apply(term, MARGIN = 2, paste, collapse = ", "))
+```
+
+
+#topics <- topics(lda) # 1st topic identified for every document (tweet)
+#topics <- data.frame(date=as.IDate(tweets.df$created), topic=topics)
+#ggplot(topics, aes(date, fill = term[topic])) +
+#  geom_density(position = "stack")
+
+## Sentiment Analysis
+# install package sentiment140
+#require(devtools)
+#install_github("sentiment140", "okugami79")
+
+# sentiment analysis
+```{r}
+library(sentiment)
+sentiments <- sentiment(tweets.df$text)
+table(sentiments$polarity)
+```
+
+# sentiment plot
+```{r}
+sentiments$score <- 0
+sentiments$score[sentiments$polarity == "positive"] <- 1
+sentiments$score[sentiments$polarity == "negative"] <- -1
+sentiments$date <- as.Date(tweets.df$created)
+result <- aggregate(score ~ date, data = sentiments, sum)
+plot(result, type = "l")
+summary(sentiments$score)
+```
+
+
+#install.packages("twitteR")
+
+# Follower Analysis
+```{r}
+library(curl)
+require(devtools)
+install_github("sentiment140", "okugami79")
+Install lines for "graph" and "Rgraphviz"
+source("https://bioconductor.org/biocLite.R")
+biocLite("graph")
+biocLite("Rgraphviz")
+
+user <- getUser("Nike")
+user$toDataFrame()
+friends <- user$getFriends() # who this user follows
+followers <- user$getFollowers() # this user's followers
+followers2 <- followers[[1]]$getFollowers() # a follower's followers
+```
+
+# select top retweeted tweets
+```{r}
+table(tweets.df$retweetCount)
+selected <- which(tweets.df$retweetCount >= 10000)
+```
+
+# plot them
+```{r}
+dates <- strptime(tweets.df$created, format="%Y-%m-%d")
+plot(x=dates, y=tweets.df$retweetCount, type="l", col="grey",
+     xlab="Date", ylab="Times retweeted")
+colors <- rainbow(10)[1:length(selected)]
+points(dates[selected], tweets.df$retweetCount[selected],
+       pch=19, col=colors)
+text(dates[selected], tweets.df$retweetCount[selected],
+     tweets.df$text[selected], col=colors, cex=.9)
+```
+
+```{r}
+tweets[[1]]
+retweeters(tweets[[1]]$id)
+retweets(tweets[[1]]$id)
+```
+
+

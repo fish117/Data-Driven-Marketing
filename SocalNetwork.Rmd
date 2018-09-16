@@ -1,0 +1,207 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# set working directory with your own location
+```{r}
+setwd("/Users/Tao/Dropbox/Teaching/BAMA517_personal/Dataset")
+```
+# Load the package
+```{r}
+library(igraph)
+#library(sna)
+```
+
+# get the data in edge list format
+```{r}
+g1 <- read.table('undirected.txt')
+g2 <- read.table('directed.txt')
+
+head(g1)
+```
+
+# create graph for g1
+```{r}
+graph1 <- graph_from_data_frame(g1, directed = FALSE, vertices = NULL)
+plot(graph1)
+```
+
+# arrow is too big
+```{r}
+graph2 <- graph_from_data_frame(g2)
+plot(graph2, directed = TRUE, vertices = NULL)
+```
+
+# create a full network
+```{r}
+g_full <- make_full_graph(8, directed = FALSE)
+plot(g_full)
+```
+
+# create a empty network
+```{r}
+g_empty <- make_empty_graph(40)
+plot(g_empty)
+```
+
+# create a ring graph
+```{r}
+g_ring <- make_ring(12, directed = FALSE, mutual = FALSE)
+plot(g_ring)
+```
+
+# create a star graph
+```{r}
+g_star <-make_star(10, center = 1)
+plot(g_star)
+```
+
+# create a tree graph
+```{r}
+tr <- make_tree(40, children = 3, mode = "undirected")
+# try differen parameters to design the look
+plot(tr, vertex.size=10, vertex.color = "purple", vertex.label=NA)
+plot(tr, vertex.size=10, vertex.color = "purple", vertex.label.color="white") 
+
+tr <- make_tree(40, children = 3, mode = "undirected") %>%
+  set_vertex_attr("color", value = "green") %>%
+  set_edge_attr("color", value ="blue")
+plot(tr)
+```
+
+# build a graph with 20 nodes and 30% connectedness
+```{r}
+g_gnp <- sample_gnp(20, 0.3, directed = FALSE, loops = FALSE)
+plot(g_gnp)
+```
+
+# build a graph with 20 nodes and 50 edges (randomly connected)
+```{r}
+g_gnm <- sample_gnp(20, 0.5, directed = FALSE, loops = FALSE)
+plot(g_gnm)
+```
+
+# build a graph with 20 nodes and 50 edges (randomly connected)
+```{r}
+g_gnm <- sample_gnp(20, , directed = FALSE, loops = FALSE)
+plot(g_gnm)
+```
+
+# build a preferential attachment graph with 20 nodes and the node with one
+# more edge is the priority to attract others
+```{r}
+g_gpa <- sample_pa(20, power =1)
+plot(g_gpa)
+```
+
+######Calculating Network Measures########
+
+```{r}
+library(igraph)
+g1 <-sample_pa(12, power =1, directed = FALSE)
+plot(g1)
+```
+
+# degree means the number of edges of each node
+```{r}
+degree(g1)
+```
+
+# in- and out-degree centrality score for directed network
+```{r}
+g2 <- read.table('directed.txt')
+graph2 <- graph_from_data_frame(g2)
+degree(graph2, mode = "in")
+degree(graph2, mode = "out")
+```
+
+# betweenness centrality
+```{r}
+g1 <- sample_pa(20, power =1, directed = FALSE)
+plot(g1)
+betweenness(g1)
+```
+
+# network density
+```{r}
+ed <- edge_density(g1, loops=FALSE)
+ed
+```
+
+# try another one
+```{r}
+g2 <- sample_pa(40, power =1, directed = FALSE)
+plot(g2)
+ed2 <- edge_density(g2, loops=FALSE)
+ed2
+```
+
+## The density of preferential attachment framework is 2 divided by number of nodes
+## This is because this type of network adds one more edge with one more node
+
+# gnp graph's density
+```{r}
+gnp <- sample_gnp(20, 0.3, directed = FALSE, loops = FALSE )
+plot(gnp)
+edg <-edge_density(gnp, loops = FALSE)
+edg
+# Everytime the density may be different but all around 0.3 (as we defined it!)
+```
+
+## Identify the cliques in a graph
+# cliques are the fully connected clusters in the network - "small circles"
+```{r}
+gnp <- sample_gnp(20, 0.3, directed = FALSE, loops = FALSE )
+plot(gnp)
+clique_num(gnp)
+```
+
+# you want to see only the cliques with four more edges
+```{r}
+cliques(gnp, min = 4)
+```
+
+# you can set the range of number of edges for cliques  
+```{r}
+cliques(gnp, min = 3, max = 4)
+```
+
+# let's increase the density
+```{r}
+gnp <- sample_gnp(20, 0.3, directed = FALSE, loops = FALSE )
+clique_num(gnp)
+```
+
+# Find components of a graph
+# A component is a gropu of connected network nodes. 
+# A graph may have multiple components that are not interconnected. 
+```{r}
+gnp <- sample_gnp(20, 0.08, directed = FALSE, loops = FALSE )
+plot(gnp)
+components(gnp)
+```
+
+# Take a random walk on a graph
+```{r}
+g1 <- sample_gnp(30, 0.08, directed = FALSE)
+plot(g1)
+```
+
+#First number is the starting point. The second number is how may stops you plan.
+```{r}
+random_walk(g1, 15, 8, stuck = "return")
+# Use of the random walk? Twitter use it for recommeding who to follow.
+```
+
+# Saving the graph file
+```{r}
+g1 <- sample_gnp(30, 0.08, directed = FALSE)
+plot(g1)
+write.graph(g1, file='rand_network.txt', format = "edgelist")
+```
+
+
+
+
+
+

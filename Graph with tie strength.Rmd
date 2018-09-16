@@ -1,0 +1,54 @@
+---
+title: "Social Network with Tie Strength"
+output: html_notebook
+---
+# copyright: data and code through the courtesy of 'http://www.shizukalab.com'
+
+```{r}
+setwd("Your directory")
+```
+
+# Load the package
+```{r}
+library(igraph)
+```
+
+# get the data in csv file
+```{r}
+el=read.csv("weights.csv") # read  the 'weights.csv' file
+el
+```
+
+#Because the vertex IDs in this dataset are numbers, we make sure igraph knows these should be treated as characters. Otherwise, it'll create problems (see page on data import)
+```{r}
+el[,1]=as.character(el[,1]) 
+el[,2]=as.character(el[,2])
+```
+
+#igraph needs the edgelist to be in matrix format when the more attributes are added to the nodes
+```{r}
+el=as.matrix(el) 
+```
+
+# We first greate a network from the first two columns, which has the list of vertices
+# We then add the edge weights to this network by assigning an edge attribute called 'weight'.
+# The thickness of line shows the 'weight' and indicates the tie strength. High weight means strong relationship.
+```{r}
+g=graph.edgelist(el[,1:2]) 
+E(g)$weight=as.numeric(el[,3]) 
+plot(g, edge.width=E(g)$weight)
+```
+
+# Alternatively, you can generate the graph using data frame 
+# Because the third column is called "weight", this function adds an edge attribute called "weight" when creating the graph. You can have additional edge attributes as the 4th, 5th, etc. columns
+```{r}
+el=read.csv('weights.csv')
+g2=graph.data.frame(el)
+head(g2)
+```
+
+# Now you can plot it
+```{r}
+plot(g, edge.width=E(g2)$weight)
+```
+
